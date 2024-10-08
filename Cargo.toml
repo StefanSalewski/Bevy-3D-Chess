@@ -1,0 +1,18 @@
+[package]
+name = "Bevy-3D_Chess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-std = "1.13.0"
+bevy = { version = "0.14.2", features=["jpeg"]}
+bevy_mod_picking = "0.20.1"
+bevy_panorbit_camera = "0.19.3"
+bevy_render = "0.14.2"
+crossbeam-channel = "0.5.13"
+futures-lite = "2.3.0"
+num-traits = "0.2.19"
+rand = "0.8.5"
+
+[features]
+salewskiChessDebug = []
