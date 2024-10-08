@@ -2,7 +2,7 @@
 
 A Rust implementation of the salewski-chess engine, featuring a simple 3D user interface built with Bevy.
 
-![Chess UI](http://ssalewski.de/tmp/Bevy_3D-Chess.png)
+![Chess UI](http://ssalewski.de/tmp/Bevy-3D-Chess.png)
 
 This Rust version of the chess engine includes several improvements and bug fixes over the original Nim version, and it eliminates the use of global variables.
 
