@@ -45,6 +45,8 @@ cd Bevy-3D-Chess
 cargo run --release
 ```
 
+## Numeric keypad zero starts a new game!
+
 ---
 
 For actual gameplay, you might prefer the 2D egui version with the same engine, available at [tiny-chess](https://github.com/StefanSalewski/tiny-chess).
