@@ -4,17 +4,24 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.16.1", features = ["jpeg"] }
-bevy_picking = { version = "0.16.1" }
-bevy_panorbit_camera = "0.28"
-crossbeam-channel = "0.5"
-futures-lite = "2.6"
-#rand = "0.9"
-num-traits = "0.2"
-async-std = "1.13"
+async-std = "1.13.2"
+bevy = { version = "0.18.0", features = ["jpeg"] }
+
+bevy_panorbit_camera = "0.34.0"
+bevy_picking = "0.18.0"
+crossbeam-channel = "0.5.15"
+futures-lite = "2.6.1"
+num-traits = "0.2.19"
 
 [profile.dev]
-opt-level = 3
+opt-level = 2
+
+[profile.release]
+opt-level = 2
+#codegen-units = 1
+strip = true  # Automatically strip symbols from the binary.
+lto = false
+panic = "abort"
 
 [features]
 salewskiChessDebug = []

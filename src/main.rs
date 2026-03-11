@@ -241,10 +241,30 @@ fn highlight_for(
     hi
 }
 
-fn swap_to_highlight_on<E>(
+
+
+/*
+
+// Old
+commands.add_observer(|trigger: Trigger<OnAdd, Player>| {
+    info!("Spawned player {}", trigger.target());
+});
+
+// New
+commands.add_observer(|add: On<Add, Player>| {
+    info!("Spawned player {}", add.entity);
+});
+
+*/
+
+
+
+
+
+fn swap_to_highlight_on<E: bevy::prelude::EntityEvent>(
     variant: i32,
 ) -> impl Fn(
-    Trigger<E>,
+    On<E>,
     ResMut<HighlightCache>,
     ResMut<Assets<StandardMaterial>>,
     Query<&mut MeshMaterial3d<StandardMaterial>>,
@@ -252,8 +272,8 @@ fn swap_to_highlight_on<E>(
 ) {
     move |trigger, mut cache, mut materials, mut mut_mat_q, orig_q| {
         if let (Ok(mut mat), Ok(orig)) = (
-            mut_mat_q.get_mut(trigger.target()),
-            orig_q.get(trigger.target()),
+            mut_mat_q.get_mut(trigger.event_target()), // ****
+            orig_q.get(trigger.event_target()),
         ) {
             let hi = highlight_for(&orig.0, &mut cache, &mut materials, variant);
             mat.0 = hi;
@@ -261,12 +281,13 @@ fn swap_to_highlight_on<E>(
     }
 }
 
-fn swap_back_on<E>()
--> impl Fn(Trigger<E>, Query<&mut MeshMaterial3d<StandardMaterial>>, Query<&OriginalMaterial>) {
+//fn swap_back_on<E>()
+fn swap_back_on<E: bevy::prelude::EntityEvent>()
+-> impl Fn(On<E>, Query<&mut MeshMaterial3d<StandardMaterial>>, Query<&OriginalMaterial>) {
     move |trigger, mut mut_mat_q, orig_q| {
         if let (Ok(mut mat), Ok(orig)) = (
-            mut_mat_q.get_mut(trigger.target()),
-            orig_q.get(trigger.target()),
+            mut_mat_q.get_mut(trigger.event_target()),
+            orig_q.get(trigger.event_target()),
         ) {
             mat.0 = orig.0.clone();
         }
@@ -653,103 +674,114 @@ fn engine(
 
 // --- Click handling + legal-move tagging ---
 fn process_mouse_click(
-    _click: Trigger<Pointer<Click>>, // required for Observe API
+    mut click: On<Pointer<Click>>,        // observer param; provides the clicked entity
     mut selection: ResMut<SelectionState>,
-    mut pointer_events: EventReader<Pointer<Click>>,
     mut commands: Commands,
     secs: Res<SecsPerMove>,
     sides: Res<EnginePlays>,
-    state: ResMut<State>,
+    state: Res<State>,
     mut pieces: Query<(Entity, &mut Figure)>,
     mut game_data: ResMut<GameData>,
     mut ui: ResMut<Txt>,
     mut pos_q: Query<&mut PositionData>,
 ) {
+    // Only allow interaction while game is "Playing"
     if *state != State::Playing {
         return;
     }
 
+    // If it's the engine's turn, ignore clicks
     let next = game_data.game.lock().unwrap().move_counter as usize % 2;
     if sides.t[next] {
         return;
-    } // engine's turn
+    }
 
-    for click in pointer_events.read() {
-        if pos_q.get(click.target).is_err() {
-            continue;
-        }
-        let loc = pos_q.get(click.target).unwrap().location;
-        let pos = PositionData { location: loc };
+    // The entity that received this click (i.e., the board square or piece you observed on)
+    let target = click.event_target();
 
-        if selection.first_selection.is_none() {
-            // first click: only accept if a piece sits on that square
-            let mut found_piece = false;
-            for (_e, p) in pieces.iter_mut() {
-                if p.location == loc {
-                    selection.first_selection = Some((click.target, pos));
-                    found_piece = true;
-                    break;
-                }
+    // We only care about entities that have PositionData
+    let Ok(pd) = pos_q.get(target) else { return; };
+    let loc = pd.location;
+    let pos = PositionData { location: loc };
+
+    // === First click: select a piece (must be a square that currently holds a piece) ===
+    if selection.first_selection.is_none() {
+        // Verify there is a piece on that square
+        let mut found_piece = false;
+        for (_e, p) in pieces.iter_mut() {
+            if p.location == loc {
+                selection.first_selection = Some((target, pos));
+                found_piece = true;
+                break;
             }
+        }
 
-            // If a piece is selected, compute legal moves via move_is_valid2 over all squares
-            if found_piece {
-                let a = vec3_to_idx(pos.location) as i64;
-                let mut new_tags = [0i8; 64];
-                // Lock engine state once for the scan
-                {
-                    let mut g = game_data.game.lock().unwrap();
-                    for b in 0..64 {
-                        if engine::move_is_valid2(&mut g, a, b as i64) {
-                            new_tags[b] = TAG_LEGAL; // mark legal destination
-                        }
+        // If a piece was selected, compute and tag all legal destination squares
+        if found_piece {
+            let a = vec3_to_idx(pos.location) as i64;
+            let mut new_tags = [0i8; 64];
+
+            {
+                let mut g = game_data.game.lock().unwrap();
+                for b in 0..64 {
+                    if engine::move_is_valid2(&mut g, a, b as i64) {
+                        new_tags[b] = TAG_LEGAL; // legal destination
                     }
                 }
-                let ai = a as usize;
-                if ai < 64 {
-                    new_tags[ai] = TAG_LAST;
-                }
-                game_data.tagged = new_tags;
             }
 
-            continue;
-        }
-
-        // second click
-        let (_, first) = selection.first_selection.as_ref().unwrap();
-        let a = vec3_to_idx(first.location) as i64;
-        let b = vec3_to_idx(pos.location) as i64;
-
-        if !engine::move_is_valid2(&mut game_data.game.lock().unwrap(), a, b) {
-            ui.ui_text = "invalid move, ignored.".to_owned();
-            selection.first_selection = None;
-            // clear highlights
-            game_data.tagged = [0; 64];
-            continue;
-        }
-
-        ui.refresh(secs.time, &sides, &game_data.game.lock().unwrap());
-
-        for (entity, mut piece) in pieces.iter_mut() {
-            if piece.location == pos.location {
-                commands.entity(entity).despawn();
+            // Also tag the selected source square as "last"
+            let ai = a as usize;
+            if ai < 64 {
+                new_tags[ai] = TAG_LAST;
             }
-            if piece.location == first.location {
-                piece.location = pos.location;
-                if let Ok(mut pd) = pos_q.get_mut(entity) {
-                    pd.location = pos.location;
-                }
-            }
-        }
-        game_data.tagged = [0; 64];
-        game_data.tagged[a as usize] = TAG_LAST;
-        game_data.tagged[b as usize] = TAG_LAST;
 
-        let flag = engine::do_move(&mut game_data.game.lock().unwrap(), a as i8, b as i8, false);
-        ui.ui_text = engine::move_to_str(&game_data.game.lock().unwrap(), a as i8, b as i8, flag);
-        selection.first_selection = None;
+            game_data.tagged = new_tags;
+        }
+
+        return;
     }
+
+    // === Second click: attempt to move to the clicked square ===
+    let (_, first) = selection.first_selection.as_ref().unwrap();
+    let a = vec3_to_idx(first.location) as i64;
+    let b = vec3_to_idx(pos.location) as i64;
+
+    if !engine::move_is_valid2(&mut game_data.game.lock().unwrap(), a, b) {
+        ui.ui_text = "invalid move, ignored.".to_owned();
+        selection.first_selection = None;
+        game_data.tagged = [0; 64]; // clear highlights
+        return;
+    }
+
+    ui.refresh(secs.time, &sides, &game_data.game.lock().unwrap());
+
+    // Handle capture on destination square
+    for (entity, mut piece) in pieces.iter_mut() {
+        if piece.location == pos.location {
+            commands.entity(entity).despawn();
+        }
+        if piece.location == first.location {
+            piece.location = pos.location;
+            if let Ok(mut pd) = pos_q.get_mut(entity) {
+                pd.location = pos.location;
+            }
+        }
+    }
+
+    // Tag last move (source & destination)
+    game_data.tagged = [0; 64];
+    game_data.tagged[a as usize] = TAG_LAST;
+    game_data.tagged[b as usize] = TAG_LAST;
+
+    let flag = engine::do_move(&mut game_data.game.lock().unwrap(), a as i8, b as i8, false);
+    ui.ui_text = engine::move_to_str(&game_data.game.lock().unwrap(), a as i8, b as i8, flag);
+
+    // Reset selection after a completed move
+    selection.first_selection = None;
 }
+
+
 
 // --- Squares ---
 fn create_squares(

@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.5.0 -- 20-JUL-2025
+// v 0.6.0 -- 01-MAR-2026
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -286,7 +286,7 @@ pub fn new_game() -> Game {
     //set_board(&mut g, VOID_ID, BF, B8);
     //set_board(&mut g, VOID_ID, BG, B8);
 
-    if true {
+    if !true {
         println!("yyy");
         g.board = [0; 64];
         //set_board(&mut g, B_KING, BH, B3);
@@ -489,7 +489,13 @@ pub const KING_VALUE: i16 = 18000; // more than the summed value of all other pi
 pub const KING_VALUE_DIV_2: i16 = KING_VALUE / 2;
 pub const SURE_CHECKMATE: i16 = KING_VALUE / 2; // still more than the summed value of all other pieces, but less than value of a king
 
-const FIGURE_VALUE: [i16; KING_ID as usize + 1] = [
+const FIGURE_VALUE: [i16; 2 * KING_ID as usize + 1] = [
+    KING_VALUE,
+    QUEEN_VALUE,
+    ROOK_VALUE,
+    BISHOP_VALUE,
+    KNIGHT_VALUE,
+    PAWN_VALUE,
     VOID_VALUE,
     PAWN_VALUE,
     KNIGHT_VALUE,
@@ -640,6 +646,7 @@ fn ev_board(kks: &KKS, mut pop: [i64; 64]) -> i64 {
             val => 10 + val,            // 23, 24, ..
         }
     }
+    //println!("Res: {}", res / 2);
     res / 2
 }
 
@@ -1350,14 +1357,20 @@ fn plain_evaluate_board(g: &Game) -> i64 {
     let mut a = [0; 13];
     let mut result: i64 = 0;
     for (p, f) in g.board.iter().enumerate() {
-        a[(6 + *f) as usize] += 1;
-        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p])
-            as i64
-            * signum(*f as i64);
+        if *f != 0 {
+            let idx = (*f + 6) as usize;
+            a[idx] += 1;
+            let mut h = (FIGURE_VALUE[idx] + g.freedom[idx][p]) as i64;
+            //* signum(*f as i64);
+            if *f < 0 {
+                h = -h;
+            }
+            result += h;
+        }
     }
 
     // it is good to have a pair of knight, bishop, rook, and to have a few pawns left. New for v 0.3!
-    for i in &a[7..13] {
+    for i in &a[7..11] {
         // while pieces
         if *i > 1 {
             result += 10
@@ -1366,10 +1379,10 @@ fn plain_evaluate_board(g: &Game) -> i64 {
     if a[7] == 0 {
         // white pawns
         result -= 50;
-    } else if a[7] == 1 {
-        result -= 10;
+        //} else if a[7] == 1 {
+        //    result -= 10;
     }
-    for i in &a[0..6] {
+    for i in &a[2..6] {
         // black pieces
         if *i > 1 {
             result -= 10
@@ -1377,9 +1390,9 @@ fn plain_evaluate_board(g: &Game) -> i64 {
     }
     if a[5] == 0 {
         // black pawns
-        result -= 50;
-    } else if a[5] == 1 {
-        result -= 10;
+        result += 50;
+        //} else if a[5] == 1 {
+        //    result += 10;
     }
 
     if g.has_moved.contains(WK3) {
@@ -1423,44 +1436,6 @@ i64 alphaBeta( i64 alpha, i64 beta, i64 depthleft ) {
 """
 */
 
-fn _old_in_check(g: &Game, si: i8, col: Color) -> bool {
-    let kk = KK {
-        si,
-        //sf: signum(col as i64) as i8,
-        sf: col as i8, // used by walk_pawn
-        s: -1,
-        ..Default::default()
-    };
-    let mut s: Vec<KK> = Vec::with_capacity(16);
-    debug_assert!(kk.sf == col as i8);
-    walk_bishop(g, kk, &mut s);
-    if s.iter()
-        .any(|&it| it.df.abs() == BISHOP_ID || it.df.abs() == QUEEN_ID)
-    {
-        return true;
-    }
-    s.clear();
-    walk_rook(g, kk, &mut s);
-    if s.iter()
-        .any(|&it| it.df.abs() == ROOK_ID || it.df.abs() == QUEEN_ID)
-    {
-        return true;
-    }
-    s.clear();
-    walk_knight(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID) {
-        return true;
-    }
-    s.clear();
-    walk_pawn(g, kk, &mut s, false);
-    if s.iter().any(|&it| it.df.abs() == PAWN_ID) {
-        return true;
-    }
-    s.clear();
-    walk_king(g, kk, &mut s); // for which case do we really need this?
-    s.iter().any(|&it| it.df.abs() == KING_ID)
-}
-
 fn in_check(g: &Game, si: i8, col: Color, check_king_attack: bool) -> bool {
     let kk = KK {
         si,
@@ -1503,82 +1478,6 @@ fn in_check(g: &Game, si: i8, col: Color, check_king_attack: bool) -> bool {
     }
     false
 }
-
-fn queen_in_check(g: &Game, si: i8, col: Color) -> bool {
-    // check if queen at si can be captured by pawn, knight, bishop, or rook.
-    // this situation is dangerous, so depth increase makes sense.
-    let kk = KK {
-        si,
-        //sf: signum(col as i64) as i8,
-        sf: col as i8, // used by walk_pawn
-        s: -1,
-        ..Default::default()
-    };
-    let mut s: Vec<KK> = Vec::with_capacity(16);
-    debug_assert!(kk.sf == col as i8);
-    walk_knight(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID) {
-        return true;
-    }
-    s.clear();
-    walk_bishop(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == BISHOP_ID) {
-        return true;
-    }
-    s.clear();
-    walk_rook(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == ROOK_ID) {
-        return true;
-    }
-    s.clear();
-    walk_pawn(g, kk, &mut s, false);
-    if s.iter().any(|&it| it.df.abs() == PAWN_ID) {
-        return true;
-    }
-    false
-}
-
-/*
-GPT-4 suggestion
-fn in_check(game: &Game, square_index: usize, color: Color) -> bool {
-    let kk = KK {
-        si: square_index as i8,
-        sf: signum(color as i64) as i8,
-        s: -1,
-        ..Default::default()
-    };
-    debug_assert!(kk.sf == color as i8);
-    let mut threats = Vec::with_capacity(8);
-    let checks = [
-        (BISHOP_ID, Some(QUEEN_ID), walk_bishop),
-        (ROOK_ID, Some(QUEEN_ID), walk_rook),
-        (KNIGHT_ID, None, walk_knight),
-        (PAWN_ID, None, walk_pawn),
-        (KING_ID, None, walk_king),
-    ];
-    for &(id, additional_id, walker) in &checks {
-        threats.clear();
-        walker(game, kk, &mut threats);
-        if threats.iter().any(|&it| it.df.abs() == id || additional_id.map_or(false, |aid| it.df.abs() == aid)) {
-            return true;
-        }
-    }
-    false
-}
-*/
-
-/*
-fn king_pos(g: &Game, c: Color) -> i8 {
-    let k = KING_ID * c as i8;
-    for (i, f) in g.board.iter().enumerate() {
-        if *f == k {
-            return i as i8;
-        }
-    }
-    debug_assert!(false);
-    0
-}
-*/
 
 fn king_pos(g: &Game, c: Color) -> i8 {
     let k = KING_ID * c as i8;
@@ -1654,18 +1553,18 @@ fn abeta(
     let mut ddi: [i64; 7] = [0; 7]; // destination figure depth increase
     let mut nep_pos: i8; // new en passant position for next ply
     let mut attacs: i64 = 0; // number of attacked positions
-    let mut v_depth_inc: i64; // conditional depth extension, e.g. for chess or captures
+    let mut v_depth_inc: i64; // conditional depth extension, e.g. for check or captures
     let mut eval_cnt: i64 = 0; // number of newly evaluated moves
     let mut alpha: i64 = alpha_0; // mutable alpha
     let mut valid_move_found: bool = false; // can we move -- no checkmate or stalemate
     let mut time_break: bool = false;
-    // backup for debugging, so we can test if all our moves undo operations are correct
+    // backup for debugging, so we can test if all our move undo operations are correct
     let back: Board = g.board; // test board integrity
-    let v_depth = v_depth - V_RATIO;
+    //let v_depth = v_depth - V_RATIO;
     let encoded_board = encode_board(g, color);
     let hash_pos: usize = get_tte(g, encoded_board);
     if hash_pos > 0 {
-        hash_res = g.tt[hash_pos].res.clone(); // no way to avoid the clone() here
+        hash_res = g.tt[hash_pos].res.clone(); // here we actually could use an inmutable reference, and clone() later
         // debug_assert!(hash_res.kks.len() > 0); // can be zero for checkmate or stalemate
         // we have the list of moves, and maybe the exact score, or a possible beta cutoff
         debug_inc(&mut g.hash_succ);
@@ -1700,6 +1599,7 @@ fn abeta(
         hash_res = HashResult::default();
         init_hr(&mut hash_res);
         hash_res.queen_pos = -1;
+        hash_res.king_pos = -1;
     }
 
     //when false: // possible, but makes not much sense
@@ -1769,6 +1669,7 @@ fn abeta(
             }
         }
         debug_assert!(hash_res.pop_cnt <= 32); // for regular games
+        debug_assert!(hash_res.king_pos != -1);
         for el in &s {
             if !is_a_pawn(el.sf) || odd(el.si - el.di) {
                 attacs += 1;
@@ -1808,9 +1709,8 @@ fn abeta(
                     debug_assert!(el.promote_to == 0);
                 }
             }
-            el.s = FIGURE_VALUE[el.promote_to.unsigned_abs() as usize]
-                + FIGURE_VALUE[el.df.unsigned_abs() as usize]
-                - FIGURE_VALUE[el.sf.unsigned_abs() as usize] / 2 * (el.df != 0) as i16
+            el.s = FIGURE_VALUE[(6 + el.promote_to) as usize] + FIGURE_VALUE[(6 + el.df) as usize]
+                - FIGURE_VALUE[(6 + el.sf) as usize] / 2 * (el.df != 0) as i16
                 + g.freedom[(6 + el.sf) as usize][(el.di) as usize]
                 - g.freedom[(6 + el.sf) as usize][(el.si) as usize];
         }
@@ -1819,11 +1719,12 @@ fn abeta(
         debug_assert!(is_sorted(&s, s.len()));
         s.shrink_to_fit();
         hash_res.kks = s;
+        //println!("Len {}", hash_res.kks.len());
         debug_assert!(!hash_res.kks.is_empty());
     }
     if CHECK_EXTEND && !hash_res.tested_for_check && depth_0 > 1 {
         hash_res.in_check = (hash_res.queen_pos >= 0
-            && queen_in_check(g, hash_res.queen_pos, color))
+            && in_check(g, hash_res.queen_pos, color, false))
             || in_check(g, hash_res.king_pos, color, false);
         // this field is optional information
         hash_res.tested_for_check = true;
@@ -1847,12 +1748,20 @@ fn abeta(
         lift(&mut alpha, evaluation);
     }
     result.control = hash_res.control;
-    //result.only_one_move = hash_res.kks.len() == 1;
     let mut hash_res_kks_high: usize = 0; // the number of newly evaluated positions, we sort only this range.
     result.score = evaluation; // LOWEST_SCORE for depth_0 > 0
     debug_assert!(depth_0 == 0 || result.score == LOWEST_SCORE);
     debug_assert!(hash_res.score[depth_0].s == INVALID_SCORE);
     // debug_assert!(hash_res.kks.len() > 0); occurs in endgame?
+
+    let mut default_extend = 0;
+
+    if CHECK_EXTEND && cup > 1 && depth_0 > 1 {
+        if hash_res.in_check {
+            default_extend = 4 + (cup == 2) as i64 * 4;
+        }
+    }
+
     for el in &mut hash_res.kks {
         if el.s == IGNORE_MARKER_LOW_INT16 {
             debug_assert!(false); // we actually delete invalid entries, so nothing to skip
@@ -1919,9 +1828,9 @@ fn abeta(
             }
             // does such extents make any sense? We can do it, but we have to be careful and test.
             // we could additional scale the extent, e.g. by dividing by (cup+1) to apply early only.
-            v_depth_inc = 0; // default
+            v_depth_inc = default_extend; // default
             if !NO_EXTEND_AT_ALL && depth_0 > 0 && !g.is_endgame {
-                // EXTEND tests are not very cheap, so do then only in higher levels
+                // EXTEND tests are not very cheap, so do them only in higher levels
                 // the following code is ordered so that v_depth_inc never is decreased, avoiding max() or lift() calls.
                 if false && SELECT_EXTEND {
                     // && SELECT_EXTEND {
@@ -1940,8 +1849,8 @@ fn abeta(
                             v_depth_inc = 2;
                         }
                         if EQUAL_CAPTURE_EXTEND || LARGE_CAPTURE_EXTEND {
-                            let immediate_gain = FIGURE_VALUE[el.df.unsigned_abs() as usize]
-                                - FIGURE_VALUE[el.sf.unsigned_abs() as usize];
+                            let immediate_gain = FIGURE_VALUE[(6 + el.df) as usize]
+                                - FIGURE_VALUE[(6 + el.sf) as usize];
                             if LARGE_CAPTURE_EXTEND {
                                 debug_assert!(false); // bad idea
                                 if immediate_gain.abs() > PAWN_VALUE {
@@ -1971,16 +1880,18 @@ fn abeta(
                             } else if hash_res.pop_cnt < 32 - 12 {
                                 v_depth_inc = 4;
                             } else {
-                                v_depth_inc = 2;
+                                v_depth_inc = max(2, default_extend);
                             }
                         }
                     }
                 }
+                /*
                 if CHECK_EXTEND && cup > 1 && depth_0 > 1 {
                     if hash_res.in_check {
                         v_depth_inc = 4 + (cup == 2) as i64 * 4;
                     }
                 }
+                */
                 if PROMOTE_EXTEND && el.promote_to != VOID_ID {
                     v_depth_inc = 4;
                 }
@@ -2046,6 +1957,7 @@ fn abeta(
                     <= 10
             );
             debug_assert!(v_depth_inc <= 8);
+            v_depth_inc = max(0, v_depth_inc - cup / 4);
             let to_100_bak = g.to_100;
             if is_a_pawnelsf || el.df != VOID_ID {
                 // test for castlings as well?
@@ -2056,7 +1968,7 @@ fn abeta(
             m = abeta(
                 g,
                 opp_color(color),
-                v_depth
+                v_depth - V_RATIO
                     + v_depth_inc
                     + sdi[el.sf.unsigned_abs() as usize]
                     + ddi[el.df.unsigned_abs() as usize],
@@ -2712,4 +2624,5 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2715 lines 343 as
+// 2715 lines 327 as
+// #e2e4 2.12s

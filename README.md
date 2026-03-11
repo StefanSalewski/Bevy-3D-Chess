@@ -2,11 +2,11 @@
 
 ![Chess UI](http://ssalewski.de/tmp/Bevy-3D-Chess2.png)
 
-**Version:** 0.2 — *15 August 2025*
+**Version:** 0.2 — *11 MAR 2026*
 **Author:** Dr. Stefan Salewski
 **License:** See source file headers for attribution of 3D models.
 
-A **plain Bevy 0.16.1 front end** for the **tiny Salewski chess engine**, featuring:
+A **plain Bevy 0.18.0 front end** for the **tiny Salewski chess engine**, featuring:
 
 * **Fully 3D chessboard and pieces**
 * **Mouse-based camera control** (orbit, pan, zoom) via \[bevy\_panorbit\_camera]
@@ -21,7 +21,7 @@ A **plain Bevy 0.16.1 front end** for the **tiny Salewski chess engine**, featur
 ## 📦 Requirements
 
 * Rust 1.78+ (2024 edition)
-* Bevy 0.16.1
+* Bevy 0.18.0
 
 ---
 
@@ -76,7 +76,7 @@ Models are loaded from `.glb` assets under Creative Commons licenses:
 
 ## 📜 Project Status
 
-Bevy 3D Chess started as a Bevy learning exercise — originally built for Bevy 0.14 and now updated to **Bevy 0.16.1**.
+Bevy 3D Chess started as a Bevy learning exercise — originally built for Bevy 0.14 and now updated to **Bevy 0.18.0**.
 The GUI code borrows heavily from Bevy example projects. GPT-5 assisted in updating the code and implementing highlight effects for both squares and pieces.
 
 ---
