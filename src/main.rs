@@ -398,6 +398,7 @@ fn new_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     mut game_data: ResMut<GameData>,
+    mut state: ResMut<State>,
 ) {
     if keyboard.pressed(KeyCode::Numpad0) {
         clear_board(&mut commands, pieces);
@@ -407,6 +408,7 @@ fn new_game(
         populate_board(&mut commands, &asset_server, &mut materials, &mut game_data);
         ui.ui_text = "New game".to_string();
         ui.nxt = "White starts the game".to_string();
+        *state = State::Playing;
     }
 }
 
