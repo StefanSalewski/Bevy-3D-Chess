@@ -4,14 +4,14 @@
 // "Wooden Chess Board" (https://skfb.ly/oXqwI) by Bhargav Limje is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
 
 // Plain Bevy frontend for the tiny Salewski chess engine
-// v 0.2 — 15-AUG-2025
+// v 0.3 — 07-NOV-2026
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
 // cargo run --features=default_font
 // cargo run --features=salewskiChessDebug
 
-// Bevy version 0.16.1
+// Bevy version 0.20.1
 
 use bevy::color::palettes::tailwind::*;
 use bevy::{
@@ -41,6 +41,8 @@ const TAG_LAST: i8 = 2;
 
 // Mapping from bool -> player label
 const PLAYER_LABEL: [&str; 2] = ["Human", "Computer"];
+const DARK_QUEEN_MESH: usize = 13;
+const LIGHT_QUEEN_MESH: usize = DARK_QUEEN_MESH + 18;
 
 // === Resources / Components ===
 #[derive(Resource)]
@@ -51,7 +53,7 @@ struct PositionData {
     location: Vec3,
 }
 
-#[derive(Resource, Default, Component)]
+#[derive(Component, Default)]
 struct Figure {
     location: Vec3,
     speed: f32,
@@ -120,7 +122,7 @@ enum State {
 }
 
 #[allow(dead_code)]
-#[derive(Resource, Component)]
+#[derive(Resource)]
 struct GameData {
     game: Arc<Mutex<engine::Game>>,
     tagged: engine::Board, // used for highlight of legal moves / last move
@@ -183,6 +185,7 @@ struct Square {
     idx: usize, // 0..63
 }
 
+/*
 fn unused_lighten_towards_white(color: Color, amount: f32) -> Color {
     let c = color.to_linear();
     let w = Color::srgb(1.0, 1.0, 1.0).to_linear();
@@ -202,6 +205,7 @@ fn unused_scaled(color: Color, factor: f32) -> Color {
     l.blue = (l.blue * factor).clamp(0.0, 1.0);
     l.into()
 }
+*/
 
 fn highlight_for(
     orig: &Handle<StandardMaterial>,
@@ -241,8 +245,6 @@ fn highlight_for(
     hi
 }
 
-
-
 /*
 
 // Old
@@ -256,10 +258,6 @@ commands.add_observer(|add: On<Add, Player>| {
 });
 
 */
-
-
-
-
 
 fn swap_to_highlight_on<E: bevy::prelude::EntityEvent>(
     variant: i32,
@@ -323,7 +321,6 @@ fn main() {
         .add_plugins(PanOrbitCameraPlugin)
         .insert_resource(NextMoveTask(None))
         .insert_resource(SelectionState::default())
-        .insert_resource(Figure::default())
         .insert_resource(SecsPerMove::default())
         .insert_resource(Txt::default())
         .insert_resource(State::Playing)
@@ -398,15 +395,26 @@ fn new_game(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     mut game_data: ResMut<GameData>,
+    mut state: ResMut<State>,
+    mut task: ResMut<NextMoveTask>,
+    mut selection: ResMut<SelectionState>,
 ) {
-    if keyboard.pressed(KeyCode::Numpad0) {
+    if keyboard.just_pressed(KeyCode::Numpad0) {
+        // A search already running may still hold the old game after its task is dropped.
+        let search_pending = task.0.take().is_some();
+        selection.first_selection = None;
         clear_board(&mut commands, pieces);
-        engine::reset_game(&mut game_data.game.lock().unwrap());
+        if search_pending {
+            game_data.game = Arc::new(Mutex::new(engine::new_game()));
+        } else {
+            engine::reset_game(&mut game_data.game.lock().unwrap());
+        }
         // clear tags
         game_data.tagged = [0; 64];
         populate_board(&mut commands, &asset_server, &mut materials, &mut game_data);
         ui.ui_text = "New game".to_string();
         ui.nxt = "White starts the game".to_string();
+        *state = State::Playing;
     }
 }
 
@@ -426,8 +434,8 @@ fn setup_menu_text(mut commands: Commands, asset_server: Res<AssetServer>) {
         .spawn((
             Text::new("Help text\n"),
             TextFont {
-                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                font_size: 32.0,
+                font: asset_server.load("fonts/FiraSans-Bold.ttf").into(),
+                font_size: FontSize::Px(32.0),
                 ..default()
             },
             InfoText,
@@ -437,8 +445,8 @@ fn setup_menu_text(mut commands: Commands, asset_server: Res<AssetServer>) {
             (
                 TextFont {
                     #[cfg(not(feature = "default_font"))]
-                    font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                    font_size: 24.0,
+                    font: asset_server.load("fonts/FiraMono-Medium.ttf").into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(GOLD.into()),
@@ -450,8 +458,8 @@ fn setup_menu_text(mut commands: Commands, asset_server: Res<AssetServer>) {
             (
                 TextFont {
                     #[cfg(not(feature = "default_font"))]
-                    font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                    font_size: 24.0,
+                    font: asset_server.load("fonts/FiraMono-Medium.ttf").into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(GOLD.into()),
@@ -463,8 +471,8 @@ fn setup_menu_text(mut commands: Commands, asset_server: Res<AssetServer>) {
             (
                 TextFont {
                     #[cfg(not(feature = "default_font"))]
-                    font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                    font_size: 24.0,
+                    font: asset_server.load("fonts/FiraMono-Medium.ttf").into(),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(GOLD.into()),
@@ -505,6 +513,7 @@ fn clear_board(commands: &mut Commands, mut pieces: Query<(Entity, &mut Figure)>
 }
 
 fn do_engine_move(
+    asset_server: Res<AssetServer>,
     mut pieces: Query<(Entity, &mut Figure)>,
     mut game_data: ResMut<GameData>,
     mut ui: ResMut<Txt>,
@@ -517,56 +526,63 @@ fn do_engine_move(
 ) {
     if let Some(ref mut next_move_task) = task.0 {
         if let Some(m) = future::block_on(future::poll_once(next_move_task)) {
-            // Early game over
-            if m.state == engine::STATE_CHECKMATE {
-                ui.ui_text.push_str(" Checkmate, game terminated!");
+            if m.state == engine::STATE_CHECKMATE || m.state == engine::STATE_STALEMATE {
+                ui.ui_text = if m.state == engine::STATE_CHECKMATE {
+                    "Checkmate, game terminated!".to_string()
+                } else {
+                    "Stalemate, game drawn!".to_string()
+                };
                 ui.nxt.clear();
                 *state = State::GameTerminated;
                 task.0 = None;
                 return;
             }
 
-            // Tag last move squares (for optional visualization)
-            game_data.tagged = [0; 64];
-            game_data.tagged[m.src as usize] = TAG_LAST;
-            game_data.tagged[m.dst as usize] = TAG_LAST;
-
-            // Update UI
-            {
-                let game = game_data.game.lock().unwrap();
-                ui.refresh(secs.time, &sides, &game);
+            let mut flag = 0;
+            let stop = m.score < -engine::KING_VALUE_DIV_2 as i64 && m.checkmate_in == 0;
+            if !stop {
+                // Tag last move squares (for optional visualization)
+                game_data.tagged = [0; 64];
+                game_data.tagged[m.src as usize] = TAG_LAST;
+                game_data.tagged[m.dst as usize] = TAG_LAST;
+                // Update UI
+                {
+                    let game = game_data.game.lock().unwrap();
+                    ui.refresh(secs.time, &sides, &game);
+                }
+                flag = engine::do_move(
+                    &mut game_data.game.lock().unwrap(),
+                    m.src as i8,
+                    m.dst as i8,
+                    false,
+                );
+                let notation = engine::move_to_str(
+                    &game_data.game.lock().unwrap(),
+                    m.src as i8,
+                    m.dst as i8,
+                    flag,
+                );
+                if m.score.abs() > engine::KING_VALUE_DIV_2 as i64 {
+                    ui.ui_text = notation.clone();
+                } else {
+                    ui.ui_text = format!("{notation} (scr: {})", m.score);
+                }
             }
-
-            let flag = engine::do_move(
-                &mut game_data.game.lock().unwrap(),
-                m.src as i8,
-                m.dst as i8,
-                false,
-            );
-
-            ui.ui_text = engine::move_to_str(
-                & game_data.game.lock().unwrap(),
-                m.src as i8,
-                m.dst as i8,
-                flag,
-            ) + &format!(" (score: {})", m.score);
-
-            if m.checkmate_in == 2 && m.score == engine::KING_VALUE as i64 {
-                ui.ui_text.push_str(" Checkmate, game terminated!");
-                ui.nxt.clear();
-                *state = State::GameTerminated;
+            if m.score.abs() > engine::KING_VALUE_DIV_2 as i64 {
+                if m.checkmate_in == 0 {
+                    ui.ui_text.push_str(" Checkmate, game terminated!");
+                    ui.nxt.clear();
+                    *state = State::GameTerminated;
+                    task.0 = None;
+                } else {
+                    ui.ui_text
+                        .push_str(&format!(" Checkmate in {}", m.checkmate_in));
+                }
+            }
+            // A terminal result has no move to apply to the rendered board.
+            if stop {
                 task.0 = None;
-            } else if m.score > engine::KING_VALUE_DIV_2 as i64
-                || m.score < -engine::KING_VALUE_DIV_2 as i64
-            {
-                ui.ui_text.push_str(&format!(
-                    " Checkmate in {}",
-                    if m.score > 0 {
-                        m.checkmate_in / 2 - 1
-                    } else {
-                        m.checkmate_in / 2 + 1
-                    }
-                ));
+                return;
             }
 
             // Capture
@@ -576,14 +592,50 @@ fn do_engine_move(
                     commands.entity(entity).despawn();
                 }
             }
-
             // Move piece
             let src = idx_to_vec3(m.src as i8);
             for (entity, mut piece) in pieces.iter_mut() {
                 if piece.location == src {
                     piece.location = dst;
+                    if flag == engine::FLAG_PROMOTION || flag == engine::FLAG_PROCAP {
+                        let promoted =
+                            engine::get_board(&game_data.game.lock().unwrap())[m.dst as usize];
+                        promote_to_queen(&mut commands, &asset_server, entity, promoted);
+                    }
                     if let Ok(mut pos) = pos_q.get_mut(entity) {
                         pos.location = dst;
+                    }
+                }
+            }
+
+            let a = m.src;
+            let b = m.dst;
+            // the same code for engine and human, we could refactor this into a function
+            if flag == engine::FLAG_CASTLING {
+                let dest_col = b % 8;
+                let (rook_src, rook_dst) = if dest_col == 1 {
+                    (a - 3, a - 1)
+                } else {
+                    (a + 4, a + 1)
+                };
+                let rook_src = idx_to_vec3(rook_src as i8);
+                let rook_dst = idx_to_vec3(rook_dst as i8);
+                for (entity, mut piece) in pieces.iter_mut() {
+                    if piece.location == rook_src {
+                        piece.location = rook_dst;
+                        if let Ok(mut pd) = pos_q.get_mut(entity) {
+                            pd.location = rook_dst;
+                        }
+                    }
+                }
+            }
+            if flag == engine::FLAG_EP {
+                let dest_col = b % 8;
+                let src_row = a / 8;
+                let despawn_pos = idx_to_vec3(src_row as i8 * 8 + dest_col as i8);
+                for (entity, piece) in pieces.iter_mut() {
+                    if piece.location == despawn_pos {
+                        commands.entity(entity).despawn();
                     }
                 }
             }
@@ -672,9 +724,30 @@ fn engine(
     }
 }
 
+// Replace only the mesh: the entity keeps its material, animation and observers.
+fn promote_to_queen(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    entity: Entity,
+    promoted: i8,
+) {
+    // These are the queen meshes used by populate_board for each color.
+    let mesh_index = if promoted > 0 {
+        LIGHT_QUEEN_MESH
+    } else {
+        DARK_QUEEN_MESH
+    };
+    commands
+        .entity(entity)
+        .insert(Mesh3d(asset_server.load(format!(
+            "models/wooden_chess_board.glb#Mesh{mesh_index}/Primitive0"
+        ))));
+}
+
 // --- Click handling + legal-move tagging ---
 fn process_mouse_click(
-    mut click: On<Pointer<Click>>,        // observer param; provides the clicked entity
+    click: On<PointerClick>,
+    asset_server: Res<AssetServer>, // observer param; provides the clicked entity
     mut selection: ResMut<SelectionState>,
     mut commands: Commands,
     secs: Res<SecsPerMove>,
@@ -700,7 +773,9 @@ fn process_mouse_click(
     let target = click.event_target();
 
     // We only care about entities that have PositionData
-    let Ok(pd) = pos_q.get(target) else { return; };
+    let Ok(pd) = pos_q.get(target) else {
+        return;
+    };
     let loc = pd.location;
     let pos = PositionData { location: loc };
 
@@ -757,11 +832,13 @@ fn process_mouse_click(
     ui.refresh(secs.time, &sides, &game_data.game.lock().unwrap());
 
     // Handle capture on destination square
+    let mut moving_entity = None;
     for (entity, mut piece) in pieces.iter_mut() {
         if piece.location == pos.location {
             commands.entity(entity).despawn();
         }
         if piece.location == first.location {
+            moving_entity = Some(entity);
             piece.location = pos.location;
             if let Ok(mut pd) = pos_q.get_mut(entity) {
                 pd.location = pos.location;
@@ -773,15 +850,48 @@ fn process_mouse_click(
     game_data.tagged = [0; 64];
     game_data.tagged[a as usize] = TAG_LAST;
     game_data.tagged[b as usize] = TAG_LAST;
-
     let flag = engine::do_move(&mut game_data.game.lock().unwrap(), a as i8, b as i8, false);
     ui.ui_text = engine::move_to_str(&game_data.game.lock().unwrap(), a as i8, b as i8, flag);
+    // the same code for engine and human, we could refactor this into a function
+    if flag == engine::FLAG_CASTLING {
+        let dest_col = b % 8;
+        let (rook_src, rook_dst) = if dest_col == 1 {
+            (a - 3, a - 1)
+        } else {
+            (a + 4, a + 1)
+        };
+        let rook_src = idx_to_vec3(rook_src as i8);
+        let rook_dst = idx_to_vec3(rook_dst as i8);
+        for (entity, mut piece) in pieces.iter_mut() {
+            if piece.location == rook_src {
+                piece.location = rook_dst;
+                if let Ok(mut pd) = pos_q.get_mut(entity) {
+                    pd.location = rook_dst;
+                }
+            }
+        }
+    }
+    if flag == engine::FLAG_EP {
+        let dest_col = b % 8;
+        let src_row = a / 8;
+        let despawn_pos = idx_to_vec3(src_row as i8 * 8 + dest_col as i8);
+        for (entity, piece) in pieces.iter_mut() {
+            if piece.location == despawn_pos {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    if (flag == engine::FLAG_PROMOTION || flag == engine::FLAG_PROCAP)
+        && let Some(entity) = moving_entity
+    {
+        let promoted = engine::get_board(&game_data.game.lock().unwrap())[b as usize];
+        promote_to_queen(&mut commands, &asset_server, entity, promoted);
+    }
 
     // Reset selection after a completed move
     selection.first_selection = None;
 }
-
-
 
 // --- Squares ---
 fn create_squares(
@@ -791,9 +901,9 @@ fn create_squares(
     meshes: &mut ResMut<Assets<Mesh>>,
 ) {
     let mat2: Handle<StandardMaterial> =
-        asset_server.load("models/wooden_chess_board.glb#Material1");
+        asset_server.load("models/wooden_chess_board.glb#Material1/std");
     let mat1: Handle<StandardMaterial> =
-        asset_server.load("models/wooden_chess_board.glb#Material0");
+        asset_server.load("models/wooden_chess_board.glb#Material0/std");
 
     for i in 0..8 {
         for j in 0..8 {
@@ -822,8 +932,8 @@ fn create_squares(
                     Square { idx },
                 ))
                 // we can enable square hover here if desired:
-                // .observe(swap_to_highlight_on::<Pointer<Over>>(SQUARE_HOVER_FACTOR))
-                // .observe(swap_back_on::<Pointer<Out>>())
+                // .observe(swap_to_highlight_on::<PointerOver>(SQUARE_HOVER_FACTOR))
+                // .observe(swap_back_on::<PointerOut>())
                 .observe(process_mouse_click);
         }
     }
@@ -870,7 +980,7 @@ fn populate_board(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     game_data: &mut ResMut<GameData>,
 ) {
-    const PIECE_POS: [usize; 6] = [0, 2, 3, 5, 13, 14];
+    const PIECE_POS: [usize; 6] = [0, 2, 3, 5, DARK_QUEEN_MESH, 14];
     const NUM_PIECES: usize = 12; // 6 white + 6 black variants
 
     // engine index -> glb mesh index (see original code)
@@ -906,9 +1016,9 @@ fn populate_board(
     }
 
     let mat2: Handle<StandardMaterial> =
-        asset_server.load("models/wooden_chess_board.glb#Material1");
+        asset_server.load("models/wooden_chess_board.glb#Material1/std");
     let mat1: Handle<StandardMaterial> =
-        asset_server.load("models/wooden_chess_board.glb#Material0");
+        asset_server.load("models/wooden_chess_board.glb#Material0/std");
     let _hover_mat = materials.add(Color::from(CYAN_300)); // unused (kept for reference)
 
     let engine_board = engine::get_board(&game_data.game.lock().unwrap());
@@ -943,8 +1053,8 @@ fn populate_board(
                     },
                     OriginalMaterial(base_mat.clone()),
                 ))
-                .observe(swap_to_highlight_on::<Pointer<Over>>(PIECE_HOVER_FACTOR))
-                .observe(swap_back_on::<Pointer<Out>>())
+                .observe(swap_to_highlight_on::<PointerOver>(PIECE_HOVER_FACTOR))
+                .observe(swap_back_on::<PointerOut>())
                 .observe(process_mouse_click);
         }
     }
@@ -963,7 +1073,7 @@ fn setup(
     commands.spawn((
         PointLight {
             //intensity: 2000.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
@@ -987,3 +1097,165 @@ fn setup(
     ));
 }
 // 957 lines
+
+#[cfg(test)]
+mod promotion_tests {
+    use super::*;
+    use bevy::{
+        asset::{AssetApp, AssetPlugin},
+        ecs::system::RunSystemOnce,
+    };
+
+    #[test]
+    fn promotion_keeps_piece_and_uses_queen_mesh_for_each_color() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>();
+
+        for (promoted, expected_mesh) in [(5, LIGHT_QUEEN_MESH), (-5, DARK_QUEEN_MESH)] {
+            let location = Vec3::new(2.0, 0.0, 3.0);
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Figure {
+                        location,
+                        speed: 1.0,
+                    },
+                    Mesh3d::default(),
+                ))
+                .id();
+            app.world_mut()
+                .run_system_once(
+                    move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                        promote_to_queen(&mut commands, &asset_server, entity, promoted);
+                    },
+                )
+                .unwrap();
+
+            let figure = app.world().get::<Figure>(entity).unwrap();
+            assert_eq!(figure.location, location);
+            assert_eq!(figure.speed, 1.0);
+            let mesh = app.world().get::<Mesh3d>(entity).unwrap();
+            let asset_server = app.world().resource::<AssetServer>();
+            let path = asset_server.get_path(mesh.0.id()).unwrap();
+            assert_eq!(
+                path.to_string(),
+                format!("models/wooden_chess_board.glb#Mesh{expected_mesh}/Primitive0")
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod terminal_move_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+
+    #[test]
+    fn restart_discards_pending_move_and_selection() {
+        use bevy::asset::AssetApp;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(GameData::default())
+            .insert_resource(NextMoveTask(Some(
+                AsyncComputeTaskPool::get().spawn(std::future::pending::<engine::Move>()),
+            )))
+            .insert_resource(SelectionState::default())
+            .insert_resource(Txt::default())
+            .insert_resource(State::Waiting)
+            .insert_resource(ButtonInput::<KeyCode>::default())
+            .add_systems(Update, new_game);
+        let old_game = app.world().resource::<GameData>().game.clone();
+        let location = idx_to_vec3(8);
+        let entity = app
+            .world_mut()
+            .spawn(Figure {
+                location,
+                speed: 0.0,
+            })
+            .id();
+        app.world_mut()
+            .resource_mut::<SelectionState>()
+            .first_selection = Some((entity, PositionData { location }));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Numpad0);
+        app.update();
+
+        assert!(app.world().resource::<NextMoveTask>().0.is_none());
+        assert!(!Arc::ptr_eq(&old_game, &app.world().resource::<GameData>().game));
+        assert!(
+            app.world()
+                .resource::<SelectionState>()
+                .first_selection
+                .is_none()
+        );
+        assert!(*app.world().resource::<State>() == State::Playing);
+        assert!(app.world().get::<Figure>(entity).is_none());
+        assert_eq!(
+            app.world_mut().query::<&Figure>().iter(app.world()).count(),
+            32
+        );
+    }
+
+    #[test]
+    fn terminal_results_leave_board_and_pieces_untouched() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .insert_resource(GameData::default())
+            .insert_resource(NextMoveTask(None))
+            .insert_resource(Txt::default())
+            .insert_resource(SecsPerMove::default())
+            .insert_resource(EnginePlays::default())
+            .insert_resource(State::Waiting)
+            .add_systems(Update, do_engine_move);
+        let location = idx_to_vec3(0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Figure {
+                    location,
+                    speed: 0.0,
+                },
+                PositionData { location },
+            ))
+            .id();
+        let initial_board =
+            engine::get_board(&app.world().resource::<GameData>().game.lock().unwrap());
+
+        for (state, score, message) in [
+            (
+                engine::STATE_CHECKMATE,
+                -(engine::KING_VALUE as i64),
+                "Checkmate",
+            ),
+            (engine::STATE_STALEMATE, 0, "Stalemate"),
+            (0, -(engine::KING_VALUE as i64), "Checkmate"),
+        ] {
+            let mut result = engine::Move::default();
+            result.state = state;
+            result.score = score;
+            let task = AsyncComputeTaskPool::get().spawn(async move { result });
+            app.world_mut().resource_mut::<NextMoveTask>().0 = Some(task);
+            *app.world_mut().resource_mut::<State>() = State::Waiting;
+            for _ in 0..1000 {
+                app.update();
+                if app.world().resource::<NextMoveTask>().0.is_none() {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+            assert!(app.world().resource::<NextMoveTask>().0.is_none());
+            assert!(*app.world().resource::<State>() == State::GameTerminated);
+            assert!(app.world().resource::<Txt>().ui_text.contains(message));
+            assert!(app.world().get::<Figure>(entity).is_some());
+            assert_eq!(
+                engine::get_board(&app.world().resource::<GameData>().game.lock().unwrap()),
+                initial_board
+            );
+        }
+    }
+}

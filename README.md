@@ -1,15 +1,15 @@
 # Bevy 3D Chess
 
-![Chess UI](http://ssalewski.de/tmp/Bevy-3D-Chess2.png)
+![Chess UI](Bevy-3D-Chess3.png)
 
-**Version:** 0.2 — *11 MAR 2026*
+**Version:** 0.3 — *07 NOV 2026*
 **Author:** Dr. Stefan Salewski
 **License:** See source file headers for attribution of 3D models.
 
-A **plain Bevy 0.18.0 front end** for the **tiny Salewski chess engine**, featuring:
+A **plain Bevy 0.20.1 front end** for the **tiny Salewski chess engine**, featuring:
 
 * **Fully 3D chessboard and pieces**
-* **Mouse-based camera control** (orbit, pan, zoom) via \[bevy\_panorbit\_camera]
+* **Mouse-based camera control** (orbit, pan, zoom) via `bevy_panorbit_camera`
 * **Piece hover highlights** — pieces change color when the mouse is over them
 * **Legal move highlights** — click a piece to show all valid destination squares
 * **Last move highlights** — marks both source and destination squares after each move
@@ -20,8 +20,8 @@ A **plain Bevy 0.18.0 front end** for the **tiny Salewski chess engine**, featur
 
 ## 📦 Requirements
 
-* Rust 1.78+ (2024 edition)
-* Bevy 0.18.0
+* Rust 1.97.1+ (2024 edition)
+* Bevy 0.20.1
 
 ---
 
@@ -31,6 +31,8 @@ A **plain Bevy 0.18.0 front end** for the **tiny Salewski chess engine**, featur
 git clone https://github.com/stefansalewski/Bevy-3D-Chess.git
 cd Bevy-3D-Chess
 RUST_LOG=off cargo run
+# Or build and run an optimized version:
+cargo run --release
 ```
 
 ---
@@ -52,6 +54,8 @@ RUST_LOG=off cargo run
 
 The chess pieces were created in Blender by **Bhargav Limje** and are licensed under [Creative Commons Attribution](http://creativecommons.org/licenses/by/4.0/).
 Board asset: [Wooden Chess Board](https://skfb.ly/oXqwI).
+
+The graphics had some issues: the white king's texture was rotated by 90 degrees, and Bevy reported warnings such as `Unknown vertex attribute TEXCOORD_2`. The GPT-6 Terra Codex agent helped fix these issues.
 
 ---
 
@@ -76,7 +80,7 @@ Models are loaded from `.glb` assets under Creative Commons licenses:
 
 ## 📜 Project Status
 
-Bevy 3D Chess started as a Bevy learning exercise — originally built for Bevy 0.14 and now updated to **Bevy 0.18.0**.
+Bevy 3D Chess started as a Bevy learning exercise — originally built for Bevy 0.14 and now updated to **Bevy 0.20.1**.
 The GUI code borrows heavily from Bevy example projects. GPT-5 assisted in updating the code and implementing highlight effects for both squares and pieces.
 
 ---
@@ -85,7 +89,6 @@ The GUI code borrows heavily from Bevy example projects. GPT-5 assisted in updat
 
 The same chess engine code is also available with:
 
-* **Egui UI** — [tiny-chess](https://github.com/StefanSalewski/tiny-chess)
 * **Xilem UI** — [xilem-chess](https://github.com/StefanSalewski/xilem-chess)
 
 Older Nim, GTK, and blocking Egui versions are now deprecated and will be removed.
@@ -99,6 +102,17 @@ This is an **intermediate release**. Feedback from the Bevy community is especia
 * Efficient material handling for hover/selection highlights
 * ECS patterns for updating squares and pieces
 * UI enhancements for move history, timers, and game state
+
+## Bugs
+
+* The engine can consider promotion to a knight, but moves are always applied as promotions to a queen. In rare positions, the engine may therefore evaluate a different move from the one played.
+
+## AI and Other Support
+
+* The engine was created manually from scratch. Various AI tools have helped implement Bevy features, such as highlights for pieces and legal moves. The GPT-6 Terra Codex agent added mesh replacement for pawn promotion and fixed an issue with invisible pieces during the update from Bevy 0.18 to 0.20.1.
+
+* Special thanks to **ajundi** for reporting an issue with starting a new game after checkmate. Their report motivated me to revisit the app and fix several small issues, including castling, en passant, pawn promotion, and the "moves to checkmate" messages.
+
 
 ---
 

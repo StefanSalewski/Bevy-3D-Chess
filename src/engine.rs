@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.6.0 -- 01-MAR-2026
+// v 0.7.0 -- 07-NOV-2026
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -203,7 +203,16 @@ pub fn reset_game(g: &mut Game) {
     // g.move_chain.iter_mut().for_each(|m| *m = 0)
     g.move_counter = 0;
     g.pjm = -1;
-    g.has_moved = BitSet::new();
+    g.to_100 = 0;
+    g.is_endgame = false;
+    // Endgame setup overwrites positional values; restore the initial tables.
+    g.freedom = [[0; 64]; 13];
+    init_pawn(g, COLOR_WHITE);
+    init_pawn(g, COLOR_BLACK);
+    init_bishop(g);
+    init_knight(g);
+    init_king(g);
+    init_rook(g);
 }
 
 pub fn new_game() -> Game {
@@ -315,15 +324,15 @@ pub fn new_game() -> Game {
         //set_board(&mut g, B_BISHOP, BD, B7);
 
         // hard
-        //set_board(&mut g, B_KING, BC, B2);
-        //set_board(&mut g, W_KING, BE, B2);
-        //set_board(&mut g, B_BISHOP, BC, B6);
-        //set_board(&mut g, B_BISHOP, BF, B4);
+        set_board(&mut g, B_KING, BC, B2);
+        set_board(&mut g, W_KING, BE, B2);
+        set_board(&mut g, B_BISHOP, BC, B6);
+        set_board(&mut g, B_BISHOP, BF, B4);
 
-        set_board(&mut g, B_KING, BE, B4);
-        set_board(&mut g, W_KING, BC, B3);
-        set_board(&mut g, B_BISHOP, BA, B5);
-        set_board(&mut g, B_BISHOP, BD, B7);
+        //set_board(&mut g, B_KING, BE, B4);
+        //set_board(&mut g, W_KING, BC, B3);
+        //set_board(&mut g, B_BISHOP, BA, B5);
+        //set_board(&mut g, B_BISHOP, BD, B7);
     }
 
     if false {
@@ -599,7 +608,7 @@ const NO_NXT_DIR_IDX: u8 = 100;
 
 pub type State = i32;
 const STATE_PLAYING: i32 = 0;
-const STATE_STALEMATE: i32 = 1;
+pub const STATE_STALEMATE: i32 = 1;
 pub const STATE_CHECKMATE: i32 = 2;
 const STATE_NO_VALID_MOVE: i32 = 3;
 const STATE_CAN_CAPTURE_KING: i32 = 4;
@@ -2161,7 +2170,10 @@ fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
         ep_pos,
     );
     if close_to_checkmate(result.score) {
-        result.checkmate_in = depth as i8;
+        result.checkmate_in = (depth + 1) as i8 / 2 - 1;
+        if result.score < 0 {
+            result.checkmate_in = depth as i8 / 2;
+        };
     }
     //when defined(salewskiChessDebug):
     if true {
@@ -2173,11 +2185,21 @@ fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
     result
 }
 
+/*
 const FLAG_PLAIN: i32 = 0;
 const FLAG_CAPTURE: i32 = 1;
 const FLAG_EP: i32 = 2;
 const FLAG_PROMOTION: i32 = 3;
 const FLAG_PROCAP: i32 = 4;
+*/
+
+// well, we should use an enum :-)
+pub const FLAG_CASTLING: i32 = -1; // needed for Bevy GUI
+const FLAG_PLAIN: i32 = 0;
+const FLAG_CAPTURE: i32 = 1;
+pub const FLAG_EP: i32 = 2;
+pub const FLAG_PROMOTION: i32 = 3;
+pub const FLAG_PROCAP: i32 = 4;
 
 pub fn do_move(g: &mut Game, p0: Position, p1: Position, silent: bool) -> i32 {
     p(g.board);
@@ -2199,6 +2221,7 @@ pub fn do_move(g: &mut Game, p0: Position, p1: Position, silent: bool) -> i32 {
         }
     }
     if (p1 - p0).abs() == 2 && is_a_king_at(g, p0) {
+        result = FLAG_CASTLING;
         if col(p1) == 1 {
             g.board[p0 as usize - 1] = g.board[p0 as usize - 3];
             g.board[p0 as usize - 3] = VOID_ID;
@@ -2343,7 +2366,7 @@ pub fn move_to_str(g: &Game, si: Position, di: Position, flag: i32) -> String {
             });
             result.push(col_str(col(di)));
             result.push(row_str(row(di)));
-            if flag == FLAG_EP || flag == FLAG_PROCAP {
+            if flag == FLAG_EP {
                 result.push_str(" e.p.");
             }
         }
@@ -2391,7 +2414,7 @@ pub fn _m_2_str(g: &Game, si: Position, di: Position) -> String {
             });
             result.push(col_str(col(di)));
             result.push(row_str(row(di)));
-            if flag == FLAG_EP || flag == FLAG_PROCAP {
+            if flag == FLAG_EP {
                 result.push_str(" e.p.");
             }
             // works only after doing the move
@@ -2624,5 +2647,30 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2715 lines 327 as
+// 2641 lines 327 as
 // #e2e4 2.12s
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    #[test]
+    fn reset_restores_game_state_and_promotion_capture_notation() {
+        let mut game = new_game();
+        let initial_freedom = game.freedom;
+        game.to_100 = 99;
+        game.is_endgame = true;
+        game.freedom = [[42; 64]; 13];
+        reset_game(&mut game);
+        assert_eq!(game.to_100, 0);
+        assert!(!game.is_endgame);
+        assert_eq!(game.freedom, initial_freedom);
+        assert_eq!(game.board, SETUP);
+
+        // A white pawn promotes by capturing the black rook on the last rank.
+        let flag = do_move(&mut game, 8, 56, false);
+        assert_eq!(flag, FLAG_PROCAP);
+        assert!(!move_to_str(&game, 8, 56, flag).contains("e.p."));
+        assert!(move_to_str(&game, 8, 56, FLAG_EP).contains("e.p."));
+    }
+}

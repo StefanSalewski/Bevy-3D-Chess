@@ -1,15 +1,14 @@
 [package]
 name = "Bevy-3D_Chess"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
 async-std = "1.13.2"
-bevy = { version = "0.18.0", features = ["jpeg"] }
+bevy = { version = "0.20.1", features = ["jpeg"] }
 
-bevy_panorbit_camera = "0.34.0"
-bevy_picking = "0.18.0"
-crossbeam-channel = "0.5.15"
+bevy_panorbit_camera = "0.36.0"
+crossbeam-channel = "0.5.17"
 futures-lite = "2.6.1"
 num-traits = "0.2.19"
 
